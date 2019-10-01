@@ -23,6 +23,8 @@
 
 namespace auth_oidc\loginflow;
 
+use auth_oidc\vibuser;
+
 /**
  * Login flow for the oauth2 authorization code grant.
  */
@@ -424,7 +426,7 @@ class authcode extends \auth_oidc\loginflow\base {
             if (empty($user)) {
                 // ERROR2
                 $failurereason = AUTH_LOGIN_NOUSER;
-                $eventdata = ['other' => ['username' => $username, 'reason' => $failurereason]];
+                $eventdata = ['other' => ['reason' => $failurereason]];
                 $event = \core\event\user_login_failed::create($eventdata);
                 $event->trigger();
                 throw new \moodle_exception('errorauthloginfailednouser', 'auth_oidc', null, null, '1');
@@ -433,6 +435,11 @@ class authcode extends \auth_oidc\loginflow\base {
             $this->updatetoken($tokenrec->id, $authparams, $tokenparams);
             $user = authenticate_user_login($username, null, true);
             complete_user_login($user);
+
+            // Sync userdata.
+            $vibuser = new vibuser($tokenrec->userid);
+            $vibuser->update_user_details();
+
             return true;
         } else {
             // No existing token, user not connected.
@@ -450,12 +457,8 @@ class authcode extends \auth_oidc\loginflow\base {
 
             // See if we have an object listing.
             $username = $this->check_objects($oidcuniqid, $username);
-            $matchedwith = $this->check_for_matched($username);
-            if (!empty($matchedwith)) {
-                $matchedwith->aadupn = $username;
-                throw new \moodle_exception('errorusermatched', 'local_o365', null, $matchedwith);
-            }
             $username = trim(\core_text::strtolower($username));
+
             $tokenrec = $this->createtoken($oidcuniqid, $username, $authparams, $tokenparams, $idtoken);
 
             $existinguserparams = ['username' => $username, 'mnethostid' => $CFG->mnet_localhost_id];
@@ -485,6 +488,11 @@ class authcode extends \auth_oidc\loginflow\base {
                     $DB->update_record('auth_oidc_token', $updatedtokenrec);
                 }
                 complete_user_login($user);
+
+                // Sync userdata.
+                $vibuser = new vibuser($user->id);
+                $vibuser->update_user_details();
+
                 return true;
             } else {
                 // There was a problem in authenticate_user_login. Clean up incomplete token record.
